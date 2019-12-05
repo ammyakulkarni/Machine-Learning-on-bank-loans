@@ -1,0 +1,164 @@
+## neural netwrok model for Mybank data
+
+install.packages("neuralnet")
+library(neuralnet)
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+NNdata=read.csv("PL_XSELL.csv", header=TRUE)
+s= sample(c(1:20000), size = 16000)
+data.train= NNdata[s,]
+data.train.final= subset(data.train, select=-c(1,11))
+data.test=NNdata[-s,]
+data.test.final= subset(data.test, select=-c(1,11))
+str(data.train.final)
+gen.matrix<- model.matrix(~GENDER - 1, data= data.train.final)
+data.train.final<- data.frame(data.train.final, gen.matrix)
+View(data.train.final)
+occ.matrix<- model.matrix(~OCCUPATION - 1, data= data.train.final)
+data.train.final<- data.frame(data.train.final, occ.matrix)
+age.matrix<- model.matrix(~AGE_BKT - 1, data= data.train.final)
+data.train.final<- data.frame(data.train.final, age.matrix)
+acc.matrix<- model.matrix(~ACC_TYPE - 1, data= data.train.final)
+data.train.final<- data.frame(data.train.final, acc.matrix)
+
+data.train.final.nn<- subset(data.train.final, select=-c(3, 5, 6, 9))
+View(data.train.final.nn)
+
+nn1= neuralnet(formula = TARGET~., 
+               data= data.train.final.nn,
+               hidden = 2,
+               err.fct= "sse",
+               linear.output = FALSE,
+               lifesign = "full",
+               lifesign.step = 10,
+               threshold = 0.01,
+               stepmax= 2000)
+
+plot(nn1)
+
+data.train.final.nn$prob<- nn1$net.result[[1]]
+quantile(data.train.final.nn$prob, c(0,1,5,10,25,50,75,90,95,98,99,100)/100)
+
+
+decile=function(x) {
+  deciles=vector(length=10)
+  for (i in seq(0.1,1,.1)){
+    deciles[i*10]=quantile(x,i, na.rm=T)
+  }
+  return(
+    ifelse(x<deciles[1],1,
+           ifelse(x<deciles[2],2,
+                  ifelse(x<deciles[3],3,
+                         ifelse(x<deciles[4],4,
+                                ifelse(x<deciles[5],5,
+                                       ifelse(x<deciles[6],6,
+                                              ifelse(x<deciles[7],7,
+                                                     ifelse(x<deciles[8],8,
+                                                            ifelse(x<deciles[9],9,10
+                                                            ))))))))))
+}
+
+data.train.final.nn$deciles<- decile(data.train.final.nn$prob)
+
+tmp_NNDT = data.table(data.train.final.nn)
+rank<-tmp_NNDT[,list(
+  cnt=length(TARGET),
+  cnt_resp=sum(TARGET),
+  cnt_non_resp=sum(TARGET==0)),
+  by=deciles][order(deciles)]
+rank$rrate = round(rank$cnt_resp/rank$cnt,4);
+rank$cum_resp = cumsum(rank$cnt_resp)
+rank$cum_non_resp = cumsum(rank$cnt_non_resp)
+rank$cum_rel_resp = round(rank$cum_resp/sum(rank$cnt_resp),4);
+rank$cum_non_rel_resp = round(rank$cum_non_resp/sum(rank$cnt_non_resp),4);
+rank$ks = abs(rank$cum_rel_resp - rank$cum_non_rel_resp)*100;
+rank$rrate=percent(rank$rrate)
+rank$cum_rel_resp = percent(rank$cum_rel_resp)
+rank$cum_rel_non_resp = percent(rank$cum_non_rel_resp)
+View(rank)
+
+x= subset(data.train.final.nn, select =-c(1))
+data.train.nn.scaled <- cbind(data.train.final.nn[1], x)
+View(x)
+test.final= scale(x)
+test.final<- cbind(data.train.final.nn[1], test.final)
+View(test.final)
+
+
+nn2<- neuralnet(formula= TARGET~., data = test.final,
+                hidden = 3,
+                err.fct = "sse",
+                linear.output = FALSE,
+                lifesign = "full",
+                lifesign.step = 1,
+                threshold = 0.1,
+                stepmax = 2000)
+
+plot(nn2)
+
+test.final$prob<- nn2$net.result[[1]]
+quantile(test.final$prob, c(0,1,5,10,25,50,75,90,95,98,99,100)/100)
+hist(test.final$prob)
+
+ecile=function(x) {
+  deciles=vector(length=10)
+  for (i in seq(0.1,1,.1)){
+    deciles[i*10]=quantile(x,i, na.rm=T)
+  }
+  return(
+    ifelse(x<deciles[1],1,
+           ifelse(x<deciles[2],2,
+                  ifelse(x<deciles[3],3,
+                         ifelse(x<deciles[4],4,
+                                ifelse(x<deciles[5],5,
+                                       ifelse(x<deciles[6],6,
+                                              ifelse(x<deciles[7],7,
+                                                     ifelse(x<deciles[8],8,
+                                                            ifelse(x<deciles[9],9,10
+                                                            ))))))))))
+}
+
+test.final$deciles<- decile(test.final$prob)
+
+tmp_NNDT = data.table(test.final)
+rank<-tmp_NNDT[,list(
+  cnt=length(TARGET),
+  cnt_resp=sum(TARGET),
+  cnt_non_resp=sum(TARGET==0)),
+  by=deciles][order(-deciles)]
+rank$rrate = round(rank$cnt_resp/rank$cnt,4);
+rank$cum_resp = cumsum(rank$cnt_resp)
+rank$cum_non_resp = cumsum(rank$cnt_non_resp)
+rank$cum_rel_resp = round(rank$cum_resp/sum(rank$cnt_resp),4);
+rank$cum_non_rel_resp = round(rank$cum_non_resp/sum(rank$cnt_non_resp),4);
+rank$ks = abs(rank$cum_rel_resp - rank$cum_non_rel_resp)*100;
+rank$rrate=percent(rank$rrate)
+rank$cum_rel_resp = percent(rank$cum_rel_resp)
+rank$cum_rel_non_resp = percent(rank$cum_non_rel_resp)
+View(rank)
+View(test.final)
+test.final$class = ifelse(test.final$prob>0.2, 1, 0)
+(with(test.final, table(TARGET, as.factor(class))))
+View(test.final)
+
+library(ROCR)
+pred<-prediction(test.final$prob, data.train.final.nn$TARGET)
+perf<-performance(pred, "tpr", "fpr")
+plot(perf)
+KS<-max(attr(perf, 'y.values')[[1]] - attr(perf, 'x.values')[[1]])
+KS
+
+#Area Under Curve
+
+auc<- performance(pred, "auc");
+auc<- as.numeric(auc@y.values)
+auc
+
+## Gini Cooefficient
+
+library(ineq)
+gini=ineq(data.train$predict.score[,2], type = "Gini")
+gini
+
+
+## classification Error
+with(data.train, table(TARGET, predict.class))

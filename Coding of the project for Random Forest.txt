@@ -1,0 +1,160 @@
+#Random Forest for MyBank personal Loan proposal
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+RFdata=read.csv("PL_XSELL.csv", header=TRUE)
+View(RFdata)
+s= sample(c(1:20000), size = 16000)
+data.train= RFdata[s,]
+data.train.final= subset(data.train, select=-c(1,11))
+data.test=RFdata[-s,]
+data.test.final= subset(data.test, select=-c(1,11))
+View(data.train.final)
+View(data.train)
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/packages")
+#install.packages("randomForest")
+library(randomForest)
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+RF<- randomForest(as.factor(TARGET)~., data=data.train.final,
+                  ntree=501, mtry = 5, nodesize = 10, importance= TRUE)
+print(RF)
+plot(RF, main="")
+legend("topright", c("OOB,0,1"), text.col = 1:6, lty = 1:3, col=1:3)
+title(main="Error Rates Random Forest for RFDATA")
+
+RF$err.rate
+
+impvar<- round(randomForest::importance(RF),2)
+impvar[order(impvar[,3], decreasing =TRUE),]
+
+tRF<- tuneRF(x=data.train.final[, -c(1)],
+             y=as.factor(data.train.final$TARGET),
+             mtrystart=3,
+             ntreeTry = 101,
+             stepFactor = 1.5,
+             improve=0.001,
+             trace=TRUE,
+             plot=TRUE,
+             doBest = TRUE,
+             nodesize=10,
+             importance=TRUE
+             )
+
+data.train.final$predict.class=predict(tRF, data.train.final, type="class")
+data.train.final$predict.score=predict(tRF, data.train.final, type="prob")
+data.train$predict.class=predict(tRF, data.train, type="class")
+data.train$predict.score=predict(tRF, data.train, type="prob")
+
+View(data.train.final)
+head(data.train.final)
+
+
+decile=function(x) {
+  deciles=vector(length=10)
+  for (i in seq(0.1,1,.1)){
+    deciles[i*10]=quantile(x,i, na.rm=T)
+  }
+  return(
+    ifelse(x<deciles[1],1,
+           ifelse(x<deciles[2],2,
+                  ifelse(x<deciles[3],3,
+                         ifelse(x<deciles[4],4,
+                                ifelse(x<deciles[5],5,
+                                       ifelse(x<deciles[6],6,
+                                              ifelse(x<deciles[7],7,
+                                                     ifelse(x<deciles[8],8,
+                                                            ifelse(x<deciles[9],9,10
+                                                            ))))))))))
+}
+
+data.train$deciles <- decile(data.train$predict.score[,2])
+View(data.train)
+library(data.table)
+library(formattable)
+
+tmp_RFDT = data.table(data.train)
+rank<-tmp_RFDT[,list(
+  cnt=length(TARGET),
+  cnt_resp=sum(TARGET),
+  cnt_non_resp=sum(TARGET==0)),
+  by=deciles][order(-deciles)]
+rank$rrate = round(rank$cnt_resp/rank$cnt,4);
+rank$cum_resp = cumsum(rank$cnt_resp)
+rank$cum_non_resp = cumsum(rank$cnt_non_resp)
+rank$cum_rel_resp = round(rank$cum_resp/sum(rank$cnt_resp),4);
+rank$cum_non_rel_resp = round(rank$cum_non_resp/sum(rank$cnt_non_resp),4);
+rank$ks = abs(rank$cum_rel_resp - rank$cum_non_rel_resp)*100;
+rank$rrate=percent(rank$rrate)
+rank$cum_rel_resp = percent(rank$cum_rel_resp)
+rank$cum_rel_non_resp = percent(rank$cum_non_rel_resp)
+View(rank)
+
+library(ROCR)
+pred<-prediction(data.train$predict.score[,2], data.train$TARGET)
+perf<-performance(pred, "tpr", "fpr")
+plot(perf)
+KS<-max(attr(perf, 'y.values')[[1]] - attr(perf, 'x.values')[[1]])
+KS
+
+#Area Under Curve
+
+auc<- performance(pred, "auc");
+auc<- as.numeric(auc@y.values)
+auc
+
+## Gini Cooefficient
+
+library(ineq)
+gini=ineq(data.train$predict.score[,2], type = "Gini")
+gini
+
+
+## classification Error
+with(data.train, table(TARGET, predict.class))
+
+
+##Testing the test data
+data.test$predict.class=predict(tRF, data.test, type="class")
+data.test$predict.score=predict(tRF, data.test, type="prob")
+data.train$deciles <- decile(data.train$predict.score[,2])
+
+data.test$deciles <- decile(data.test$predict.score[,2])
+
+nrow(data.test)
+View(data.test)
+tmp_RFDT = data.table(data.test)
+rank<-tmp_RFDT[,list(
+  cnt=length(TARGET),
+  cnt_resp=sum(TARGET),
+  cnt_non_resp=sum(TARGET==0)),
+  by=deciles][order(-deciles)]
+rank$rrate = round(rank$cnt_resp/rank$cnt,4);
+rank$cum_resp = cumsum(rank$cnt_resp)
+rank$cum_non_resp = cumsum(rank$cnt_non_resp)
+rank$cum_rel_resp = round(rank$cum_resp/sum(rank$cnt_resp),4);
+rank$cum_non_rel_resp = round(rank$cum_non_resp/sum(rank$cnt_non_resp),4);
+rank$ks = abs(rank$cum_rel_resp - rank$cum_non_rel_resp)*100;
+rank$rrate=percent(rank$rrate)
+rank$cum_rel_resp = percent(rank$cum_rel_resp)
+rank$cum_rel_non_resp = percent(rank$cum_non_rel_resp)
+View(rank)
+
+pred<-prediction(data.test$predict.score[,2], data.test$TARGET)
+perf<-performance(pred, "tpr", "fpr")
+plot(perf)
+KS<-max(attr(perf, 'y.values')[[1]] - attr(perf, 'x.values')[[1]])
+KS
+
+#Area Under Curve
+
+auc<- performance(pred, "auc");
+auc<- as.numeric(auc@y.values)
+auc
+
+## Gini Cooefficient
+
+library(ineq)
+gini=ineq(data.test$predict.score[,2], type = "Gini")
+gini
+
+
+## classification Error
+(with(data.test, table(TARGET, predict.class)))

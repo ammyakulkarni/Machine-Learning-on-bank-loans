@@ -1,0 +1,478 @@
+# CART Technique for MYBANK data. Data will be split 80 and 20 % for train and test respectively
+
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+CARTdata= read.csv("PL_XSELL.csv", header=TRUE)
+library(caTools)
+set.seed(3000)
+split = sample.split(CARTdata$TARGET, SplitRatio = 0.80)
+CARTtrain= subset(CARTdata, split==T)
+CARTtest= subset(CARTdata, split==F)
+CARTtrain.final=subset(CARTtrain, select=-c(1,11))
+CARTtest.final=subset(CARTtest, select=-c(1,11))
+
+
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/packages")
+library(rpart)
+library(rpart.plot)
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+r.ctrl=rpart.control(minsplit = 100, minbucket = 10, cp=0, xval=10)
+
+CART_Train_Model = rpart(formula = TARGET~., data=CARTtrain.final , method="class", control = r.ctrl )
+CART_Train_Model
+prp(CART_Train_Model)
+library(rattle)
+fancyRpartPlot(CART_Train_Model)
+library(RColorBrewer)
+printcp(CART_Train_Model)
+plotcp(CART_Train_Model)
+
+pruning_Tree<- prune(CART_Train_Model, cp=0.0017, "CP" )
+printcp(pruning_Tree)
+fancyRpartPlot(pruning_Tree, uniform=TRUE, main="Pruned Classification Tree")
+
+CARTtrain.final$predict.class = predict(pruning_Tree, CARTtrain.final, type = "class")
+
+View(CARTtrain.final)
+
+CARTtrain.final$predict.score = predict(pruning_Tree, CARTtrain.final, type = "prob")
+
+#Deciling
+
+library(scales)
+library(data.table)
+decile=function(x) {
+  deciles=vector(length=10)
+  for (i in seq(0.1,1,.1)){
+    deciles[i*10]=quantile(x,i, na.rm=T)
+  }
+  return(
+    ifelse(x<deciles[1],1,
+           ifelse(x<deciles[2],2,
+                  ifelse(x<deciles[3],3,
+                         ifelse(x<deciles[4],4,
+                                ifelse(x<deciles[5],5,
+                                       ifelse(x<deciles[6],6,
+                                              ifelse(x<deciles[7],7,
+                                                     ifelse(x<deciles[8],8,
+                                                            ifelse(x<deciles[9],9,10
+                                                            ))))))))))
+}
+
+CARTtrain.final$deciles <- decile(CARTtrain.final$predict.score[,2])
+
+#Model Measurement using the Rank Ordering method
+
+library(formattable)
+tmp_DT_CART = data.table(CARTtrain.final)
+rank<-tmp_DT_CART[,list(
+  cnt=length(TARGET),
+  cnt_resp=sum(TARGET),
+  cnt_non_resp=sum(TARGET==0)),
+  by=deciles][order(-deciles)]
+rank$rrate = round(rank$cnt_resp/rank$cnt,4);
+rank$cum_resp = cumsum(rank$cnt_resp)
+rank$cum_non_resp = cumsum(rank$cnt_non_resp)
+rank$cum_rel_resp = round(rank$cum_resp/sum(rank$cnt_resp),4);
+rank$cum_non_rel_resp = round(rank$cum_non_resp/sum(rank$cnt_non_resp),4);
+rank$ks = abs(rank$cum_rel_resp - rank$cum_non_rel_resp)*100;
+rank$rrate=percent(rank$rrate)
+rank$cum_rel_resp = percent(rank$cum_rel_resp)
+rank$cum_rel_non_resp = percent(rank$cum_non_rel_resp)
+View(rank)
+
+
+#KS calculation
+library(ROCR)
+pred<-prediction(CARTtrain.final$predict.score[,2], CARTtrain.final$TARGET)
+perf<-performance(pred, "tpr", "fpr")
+plot(perf)
+KS<-max(attr(perf, 'y.values')[[1]] - attr(perf, 'x.values')[[1]])
+
+
+#Area Under Curve
+
+auc<- performance(pred, "auc");
+auc<- as.numeric(auc@y.values)
+
+
+## Gini Cooefficient
+
+library(ineq)
+gini=ineq(CARTtrain.final$predict.score[,2], type = "Gini")
+
+
+
+## classification Error
+with(CARTtrain.final, table(TARGET, predict.class))
+(129+1740)/16000
+KS
+auc
+gini
+
+Output of the code above
+
+> setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+> CARTdata= read.csv("PL_XSELL.csv", header=TRUE)
+> library(caTools)
+> set.seed(3000)
+> split = sample.split(CARTdata$TARGET, SplitRatio = 0.80)
+> CARTtrain= subset(CARTdata, split==T)
+> CARTtest= subset(CARTdata, split==F)
+> CARTtrain.final=subset(CARTtrain, select=-c(1,11))
+> CARTtest.final=subset(CARTtest, select=-c(1,11))
+> 
+> 
+> setwd("C:/Users/Amit Kulkarni/Documents/R Programming/packages")
+> library(rpart)
+> library(rpart.plot)
+> setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+> r.ctrl=rpart.control(minsplit = 100, minbucket = 10, cp=0, xval=10)
+> 
+> CART_Train_Model = rpart(formula = TARGET~., data=CARTtrain.final , method="class", control = r.ctrl )
+> CART_Train_Model
+n= 16000 
+
+node), split, n, loss, yval, (yprob)
+      * denotes terminal node
+
+    1) root 16000 2010 0 (0.874375000 0.125625000)  
+      2) NO_OF_L_DR_TXNS< 5.5 9580  890 0 (0.907098121 0.092901879)  
+        4) FLG_HAS_CC< 0.5 6701  485 0 (0.927622743 0.072377257)  
+          8) NO_OF_L_CR_TXNS< 16.5 5830  364 0 (0.937564322 0.062435678)  
+           16) HOLDING_PERIOD>=12.5 3919  154 0 (0.960704261 0.039295739)  
+             32) SCR< 995.5 3909  146 0 (0.962650294 0.037349706)  
+               64) OCCUPATION=PROF,SAL,SENP 3198   88 0 (0.972482802 0.027517198)  
+                128) AMT_MOB_DR< 193667 3185   84 0 (0.973626374 0.026373626)  
+                  256) AVG_AMT_PER_CSH_WDL_TXN< 992320 3172   80 0 (0.974779319 0.025220681)  
+                    512) AMT_BR_CSH_WDL_DR< 859245 2891   60 0 (0.979245936 0.020754064)  
+                     1024) AMT_MOB_DR< 73570 2722   48 0 (0.982365907 0.017634093)  
+                       2048) BALANCE>=126369.4 1785   20 0 (0.988795518 0.011204482) *
+                       2049) BALANCE< 126369.4 937   28 0 (0.970117396 0.029882604)  
+                         4098) BALANCE< 125165.5 927   21 0 (0.977346278 0.022653722) *
+                         4099) BALANCE>=125165.5 10    3 1 (0.300000000 0.700000000) *
+                     1025) AMT_MOB_DR>=73570 169   12 0 (0.928994083 0.071005917)  
+                       2050) HOLDING_PERIOD>=21.5 159    6 0 (0.962264151 0.037735849) *
+                       2051) HOLDING_PERIOD< 21.5 10    4 1 (0.400000000 0.600000000) *
+                    513) AMT_BR_CSH_WDL_DR>=859245 281   20 0 (0.928825623 0.071174377) *
+                  257) AVG_AMT_PER_CSH_WDL_TXN>=992320 13    4 0 (0.692307692 0.307692308) *
+                129) AMT_MOB_DR>=193667 13    4 0 (0.692307692 0.307692308) *
+               65) OCCUPATION=SELF-EMP 711   58 0 (0.918424754 0.081575246) *
+             33) SCR>=995.5 10    2 1 (0.200000000 0.800000000) *
+           17) HOLDING_PERIOD< 12.5 1911  210 0 (0.890109890 0.109890110)  
+             34) AMT_ATM_DR< 13350 1609  137 0 (0.914853947 0.085146053)  
+               68) AVG_AMT_PER_CHQ_TXN< 49702.5 1568  125 0 (0.920280612 0.079719388)  
+                136) SCR< 925.5 1517  112 0 (0.926170073 0.073829927)  
+                  272) AGE_BKT=>50,26-30,31-35,36-40,46-50 1142   65 0 (0.943082312 0.056917688)  
+                    544) LEN_OF_RLTN_IN_MNTH>=31.5 1127   61 0 (0.945874002 0.054125998)  
+                     1088) AMT_BR_CSH_WDL_DR< 971080 1100   56 0 (0.949090909 0.050909091)  
+                       2176) OCCUPATION=PROF,SAL 588   20 0 (0.965986395 0.034013605) *
+                       2177) OCCUPATION=SELF-EMP,SENP 512   36 0 (0.929687500 0.070312500)  
+                         4354) GENDER=F 186    4 0 (0.978494624 0.021505376) *
+                         4355) GENDER=M 326   32 0 (0.901840491 0.098159509)  
+                           8710) BALANCE>=282385.3 179    9 0 (0.949720670 0.050279330) *
+                           8711) BALANCE< 282385.3 147   23 0 (0.843537415 0.156462585)  
+                            17422) BALANCE< 259510.8 137   17 0 (0.875912409 0.124087591) *
+                            17423) BALANCE>=259510.8 10    4 1 (0.400000000 0.600000000) *
+                     1089) AMT_BR_CSH_WDL_DR>=971080 27    5 0 (0.814814815 0.185185185) *
+                    545) LEN_OF_RLTN_IN_MNTH< 31.5 15    4 0 (0.733333333 0.266666667) *
+                  273) AGE_BKT=<25,41-45 375   47 0 (0.874666667 0.125333333)  
+                    546) SCR< 259.5 113    1 0 (0.991150442 0.008849558) *
+                    547) SCR>=259.5 262   46 0 (0.824427481 0.175572519)  
+                     1094) AMT_L_DR< 1434227 245   36 0 (0.853061224 0.146938776) *
+                     1095) AMT_L_DR>=1434227 17    7 1 (0.411764706 0.588235294) *
+                137) SCR>=925.5 51   13 0 (0.745098039 0.254901961) *
+               69) AVG_AMT_PER_CHQ_TXN>=49702.5 41   12 0 (0.707317073 0.292682927) *
+             35) AMT_ATM_DR>=13350 302   73 0 (0.758278146 0.241721854)  
+               70) AVG_AMT_PER_CSH_WDL_TXN< 897000 279   57 0 (0.795698925 0.204301075) *
+               71) AVG_AMT_PER_CSH_WDL_TXN>=897000 23    7 1 (0.304347826 0.695652174) *
+          9) NO_OF_L_CR_TXNS>=16.5 871  121 0 (0.861079219 0.138920781)  
+           18) AGE_BKT=<25,>50,26-30,31-35,36-40 589   57 0 (0.903225806 0.096774194)  
+             36) GENDER=F,M 564   47 0 (0.916666667 0.083333333)  
+               72) SCR< 553 392   15 0 (0.961734694 0.038265306) *
+               73) SCR>=553 172   32 0 (0.813953488 0.186046512)  
+                146) SCR>=580 153   21 0 (0.862745098 0.137254902) *
+                147) SCR< 580 19    8 1 (0.421052632 0.578947368) *
+             37) GENDER=O 25   10 0 (0.600000000 0.400000000) *
+           19) AGE_BKT=41-45,46-50 282   64 0 (0.773049645 0.226950355)  
+             38) NO_OF_L_CR_TXNS>=17.5 254   47 0 (0.814960630 0.185039370)  
+               76) AMT_CHQ_DR< 81175 242   38 0 (0.842975207 0.157024793) *
+               77) AMT_CHQ_DR>=81175 12    3 1 (0.250000000 0.750000000) *
+             39) NO_OF_L_CR_TXNS< 17.5 28   11 1 (0.392857143 0.607142857) *
+        5) FLG_HAS_CC>=0.5 2879  405 0 (0.859326155 0.140673845)  
+         10) GENDER=F,M 2859  390 0 (0.863588667 0.136411333)  
+           20) BALANCE>=47814.15 2313  268 0 (0.884133160 0.115866840)  
+             40) NO_OF_L_CR_TXNS< 10.5 1718  162 0 (0.905704307 0.094295693)  
+               80) HOLDING_PERIOD>=4.5 1508  121 0 (0.919761273 0.080238727)  
+                160) AMT_NET_DR< 950348.5 1489  113 0 (0.924110141 0.075889859)  
+                  320) AMT_NET_DR>=491626.5 228    3 0 (0.986842105 0.013157895) *
+                  321) AMT_NET_DR< 491626.5 1261  110 0 (0.912767645 0.087232355)  
+                    642) AVG_AMT_PER_CSH_WDL_TXN< 261027.5 789   49 0 (0.937896071 0.062103929)  
+                     1284) AMT_ATM_DR< 28200 768   44 0 (0.942708333 0.057291667)  
+                       2568) AGE_BKT=<25,26-30,31-35,41-45,46-50 544   21 0 (0.961397059 0.038602941) *
+                       2569) AGE_BKT=>50,36-40 224   23 0 (0.897321429 0.102678571)  
+                         5138) AMT_BR_CSH_WDL_DR>=97975 78    0 0 (1.000000000 0.000000000) *
+                         5139) AMT_BR_CSH_WDL_DR< 97975 146   23 0 (0.842465753 0.157534247)  
+                          10278) AVG_AMT_PER_CSH_WDL_TXN< 37562.5 136   15 0 (0.889705882 0.110294118) *
+                          10279) AVG_AMT_PER_CSH_WDL_TXN>=37562.5 10    2 1 (0.200000000 0.800000000) *
+                     1285) AMT_ATM_DR>=28200 21    5 0 (0.761904762 0.238095238) *
+                    643) AVG_AMT_PER_CSH_WDL_TXN>=261027.5 472   61 0 (0.870762712 0.129237288) *
+                161) AMT_NET_DR>=950348.5 19    8 0 (0.578947368 0.421052632) *
+               81) HOLDING_PERIOD< 4.5 210   41 0 (0.804761905 0.195238095) *
+             41) NO_OF_L_CR_TXNS>=10.5 595  106 0 (0.821848739 0.178151261)  
+               82) NO_OF_L_DR_TXNS< 4.5 555   81 0 (0.854054054 0.145945946)  
+                164) BALANCE>=120970.2 457   50 0 (0.890590810 0.109409190)  
+                  328) NO_OF_BR_CSH_WDL_DR_TXNS< 2.5 396   31 0 (0.921717172 0.078282828)  
+                    656) AVG_AMT_PER_CSH_WDL_TXN< 368080 273    9 0 (0.967032967 0.032967033) *
+                    657) AVG_AMT_PER_CSH_WDL_TXN>=368080 123   22 0 (0.821138211 0.178861789)  
+                     1314) LEN_OF_RLTN_IN_MNTH>=47.5 104   12 0 (0.884615385 0.115384615) *
+                     1315) LEN_OF_RLTN_IN_MNTH< 47.5 19    9 1 (0.473684211 0.526315789) *
+                  329) NO_OF_BR_CSH_WDL_DR_TXNS>=2.5 61   19 0 (0.688524590 0.311475410) *
+                165) BALANCE< 120970.2 98   31 0 (0.683673469 0.316326531) *
+               83) NO_OF_L_DR_TXNS>=4.5 40   15 1 (0.375000000 0.625000000) *
+           21) BALANCE< 47814.15 546  122 0 (0.776556777 0.223443223)  
+             42) OCCUPATION=PROF,SAL,SENP 423   60 0 (0.858156028 0.141843972)  
+               84) BALANCE< 47085.71 413   53 0 (0.871670702 0.128329298) *
+               85) BALANCE>=47085.71 10    3 1 (0.300000000 0.700000000) *
+             43) OCCUPATION=SELF-EMP 123   61 1 (0.495934959 0.504065041)  
+               86) BALANCE< 26016.88 73   27 0 (0.630136986 0.369863014) *
+               87) BALANCE>=26016.88 50   15 1 (0.300000000 0.700000000) *
+         11) GENDER=O 20    5 1 (0.250000000 0.750000000) *
+      3) NO_OF_L_DR_TXNS>=5.5 6420 1120 0 (0.825545171 0.174454829)  
+        6) OCCUPATION=PROF,SAL,SENP 5281  797 0 (0.849081613 0.150918387)  
+         12) SCR< 535.5 3395  401 0 (0.881885125 0.118114875)  
+           24) NO_OF_L_CR_TXNS< 17.5 2428  225 0 (0.907331137 0.092668863)  
+             48) AGE_BKT=<25,>50,26-30,31-35,36-40 1749  121 0 (0.930817610 0.069182390) *
+             49) AGE_BKT=41-45,46-50 679  104 0 (0.846833579 0.153166421)  
+               98) AMT_ATM_DR>=1650 637   87 0 (0.863422292 0.136577708)  
+                196) NO_OF_L_CR_TXNS>=6.5 532   57 0 (0.892857143 0.107142857) *
+                197) NO_OF_L_CR_TXNS< 6.5 105   30 0 (0.714285714 0.285714286)  
+                  394) FLG_HAS_CC< 0.5 85   15 0 (0.823529412 0.176470588) *
+                  395) FLG_HAS_CC>=0.5 20    5 1 (0.250000000 0.750000000) *
+               99) AMT_ATM_DR< 1650 42   17 0 (0.595238095 0.404761905) *
+           25) NO_OF_L_CR_TXNS>=17.5 967  176 0 (0.817993795 0.182006205)  
+             50) BALANCE>=9885.83 902  149 0 (0.834811530 0.165188470)  
+              100) AMT_CHQ_DR< 2998790 850  129 0 (0.848235294 0.151764706)  
+                200) AVG_AMT_PER_CHQ_TXN>=23308.75 599   69 0 (0.884808013 0.115191987) *
+                201) AVG_AMT_PER_CHQ_TXN< 23308.75 251   60 0 (0.760956175 0.239043825)  
+                  402) AVG_AMT_PER_CHQ_TXN< 22456 240   49 0 (0.795833333 0.204166667)  
+                    804) AMT_MOB_DR< 87232 112    9 0 (0.919642857 0.080357143) *
+                    805) AMT_MOB_DR>=87232 128   40 0 (0.687500000 0.312500000)  
+                     1610) BALANCE>=41815.37 113   28 0 (0.752212389 0.247787611) *
+                     1611) BALANCE< 41815.37 15    3 1 (0.200000000 0.800000000) *
+                  403) AVG_AMT_PER_CHQ_TXN>=22456 11    0 1 (0.000000000 1.000000000) *
+              101) AMT_CHQ_DR>=2998790 52   20 0 (0.615384615 0.384615385) *
+             51) BALANCE< 9885.83 65   27 0 (0.584615385 0.415384615) *
+         13) SCR>=535.5 1886  396 0 (0.790031813 0.209968187)  
+           26) NO_OF_L_CR_TXNS< 50.5 1803  356 0 (0.802551303 0.197448697)  
+             52) NO_OF_L_CR_TXNS>=4.5 1762  332 0 (0.811577753 0.188422247)  
+              104) HOLDING_PERIOD>=2.5 1537  253 0 (0.835393624 0.164606376)  
+                208) AVG_AMT_PER_MOB_TXN< 147045.5 1404  205 0 (0.853988604 0.146011396)  
+                  416) AVG_AMT_PER_ATM_TXN< 7650 496   41 0 (0.917338710 0.082661290) *
+                  417) AVG_AMT_PER_ATM_TXN>=7650 908  164 0 (0.819383260 0.180616740)  
+                    834) AVG_AMT_PER_ATM_TXN>=7875 898  155 0 (0.827394209 0.172605791)  
+                     1668) OCCUPATION=PROF,SAL 617   82 0 (0.867098865 0.132901135)  
+                       3336) AGE>=30.5 451   40 0 (0.911308204 0.088691796)  
+                         6672) AVG_AMT_PER_ATM_TXN< 17550 329   19 0 (0.942249240 0.057750760) *
+                         6673) AVG_AMT_PER_ATM_TXN>=17550 122   21 0 (0.827868852 0.172131148)  
+                          13346) AMT_ATM_DR>=17850 107   13 0 (0.878504673 0.121495327) *
+                          13347) AMT_ATM_DR< 17850 15    7 1 (0.466666667 0.533333333) *
+                       3337) AGE< 30.5 166   42 0 (0.746987952 0.253012048) *
+                     1669) OCCUPATION=SENP 281   73 0 (0.740213523 0.259786477)  
+                       3338) HOLDING_PERIOD>=14.5 90    7 0 (0.922222222 0.077777778) *
+                       3339) HOLDING_PERIOD< 14.5 191   66 0 (0.654450262 0.345549738)  
+                         6678) GENDER=F 78   13 0 (0.833333333 0.166666667) *
+                         6679) GENDER=M 113   53 0 (0.530973451 0.469026549)  
+                          13358) AGE< 34.5 43    7 0 (0.837209302 0.162790698) *
+                          13359) AGE>=34.5 70   24 1 (0.342857143 0.657142857) *
+                    835) AVG_AMT_PER_ATM_TXN< 7875 10    1 1 (0.100000000 0.900000000) *
+                209) AVG_AMT_PER_MOB_TXN>=147045.5 133   48 0 (0.639097744 0.360902256)  
+                  418) BALANCE>=197423.8 58   10 0 (0.827586207 0.172413793) *
+                  419) BALANCE< 197423.8 75   37 1 (0.493333333 0.506666667) *
+              105) HOLDING_PERIOD< 2.5 225   79 0 (0.648888889 0.351111111)  
+                210) LEN_OF_RLTN_IN_MNTH>=154.5 86   15 0 (0.825581395 0.174418605) *
+                211) LEN_OF_RLTN_IN_MNTH< 154.5 139   64 0 (0.539568345 0.460431655)  
+                  422) AVG_AMT_PER_CHQ_TXN>=7172.5 112   42 0 (0.625000000 0.375000000) *
+                  423) AVG_AMT_PER_CHQ_TXN< 7172.5 27    5 1 (0.185185185 0.814814815) *
+             53) NO_OF_L_CR_TXNS< 4.5 41   17 1 (0.414634146 0.585365854) *
+           27) NO_OF_L_CR_TXNS>=50.5 83   40 0 (0.518072289 0.481927711) *
+        7) OCCUPATION=SELF-EMP 1139  323 0 (0.716417910 0.283582090)  
+         14) BALANCE>=46031.07 840  189 0 (0.775000000 0.225000000)  
+           28) HOLDING_PERIOD>=2.5 724  140 0 (0.806629834 0.193370166)  
+             56) AVG_AMT_PER_NET_TXN< 920572 693  123 0 (0.822510823 0.177489177)  
+              112) NO_OF_L_CR_TXNS>=5.5 673  110 0 (0.836552749 0.163447251)  
+                224) AMT_CHQ_DR< 73150 390   43 0 (0.889743590 0.110256410) *
+                225) AMT_CHQ_DR>=73150 283   67 0 (0.763250883 0.236749117)  
+                  450) AMT_CHQ_DR>=79860 249   45 0 (0.819277108 0.180722892) *
+                  451) AMT_CHQ_DR< 79860 34   12 1 (0.352941176 0.647058824) *
+              113) NO_OF_L_CR_TXNS< 5.5 20    7 1 (0.350000000 0.650000000) *
+             57) AVG_AMT_PER_NET_TXN>=920572 31   14 1 (0.451612903 0.548387097) *
+           29) HOLDING_PERIOD< 2.5 116   49 0 (0.577586207 0.422413793)  
+             58) BALANCE>=395456.4 42    9 0 (0.785714286 0.214285714) *
+             59) BALANCE< 395456.4 74   34 1 (0.459459459 0.540540541) *
+         15) BALANCE< 46031.07 299  134 0 (0.551839465 0.448160535)  
+           30) NO_OF_L_CR_TXNS< 39.5 269  107 0 (0.602230483 0.397769517)  
+             60) AGE_BKT=<25,>50,26-30,31-35 125   30 0 (0.760000000 0.240000000)  
+              120) GENDER=M,O 106   15 0 (0.858490566 0.141509434) *
+              121) GENDER=F 19    4 1 (0.210526316 0.789473684) *
+             61) AGE_BKT=36-40,41-45,46-50 144   67 1 (0.465277778 0.534722222)  
+              122) HOLDING_PERIOD>=13.5 37    8 0 (0.783783784 0.216216216) *
+              123) HOLDING_PERIOD< 13.5 107   38 1 (0.355140187 0.644859813)  
+                246) NO_OF_L_CR_TXNS< 10.5 36   15 0 (0.583333333 0.416666667) *
+                247) NO_OF_L_CR_TXNS>=10.5 71   17 1 (0.239436620 0.760563380) *
+           31) NO_OF_L_CR_TXNS>=39.5 30    3 1 (0.100000000 0.900000000) *
+> 
+> library(rattle)
+> fancyRpartPlot(CART_Train_Model)
+Warning message:
+labs do not fit even at cex 0.15, there may be some overplotting 
+> library(RColorBrewer)
+> printcp(CART_Train_Model)
+
+Classification tree:
+rpart(formula = TARGET ~ ., data = CARTtrain.final, method = "class", 
+    control = r.ctrl)
+
+Variables actually used in tree construction:
+ [1] AGE                      AGE_BKT                  AMT_ATM_DR              
+ [4] AMT_BR_CSH_WDL_DR        AMT_CHQ_DR               AMT_L_DR                
+ [7] AMT_MOB_DR               AMT_NET_DR               AVG_AMT_PER_ATM_TXN     
+[10] AVG_AMT_PER_CHQ_TXN      AVG_AMT_PER_CSH_WDL_TXN  AVG_AMT_PER_MOB_TXN     
+[13] AVG_AMT_PER_NET_TXN      BALANCE                  FLG_HAS_CC              
+[16] GENDER                   HOLDING_PERIOD           LEN_OF_RLTN_IN_MNTH     
+[19] NO_OF_BR_CSH_WDL_DR_TXNS NO_OF_L_CR_TXNS          NO_OF_L_DR_TXNS         
+[22] OCCUPATION               SCR                     
+
+Root node error: 2010/16000 = 0.12562
+
+n= 16000 
+
+           CP nsplit rel error  xerror     xstd
+1  0.00298507      0   1.00000 1.00000 0.020857
+2  0.00248756      8   0.96418 0.97960 0.020673
+3  0.00199005     15   0.94428 0.97711 0.020651
+4  0.00186567     16   0.94229 0.98259 0.020700
+5  0.00167910     22   0.92985 0.98209 0.020696
+6  0.00116086     30   0.91642 0.98955 0.020763
+7  0.00049751     54   0.87463 0.99154 0.020781
+8  0.00037313     58   0.87264 0.99701 0.020830
+9  0.00029851     74   0.86667 0.99851 0.020844
+10 0.00016584     79   0.86517 1.00299 0.020884
+11 0.00012438     88   0.86368 1.00199 0.020875
+12 0.00000000     92   0.86318 0.99900 0.020848
+> plotcp(CART_Train_Model)
+> 
+> pruning_Tree<- prune(CART_Train_Model, cp=0.0017, "CP" )
+> printcp(pruning_Tree)
+
+Classification tree:
+rpart(formula = TARGET ~ ., data = CARTtrain.final, method = "class", 
+    control = r.ctrl)
+
+Variables actually used in tree construction:
+ [1] AGE_BKT             AMT_CHQ_DR          AVG_AMT_PER_NET_TXN BALANCE            
+ [5] FLG_HAS_CC          GENDER              HOLDING_PERIOD      NO_OF_L_CR_TXNS    
+ [9] NO_OF_L_DR_TXNS     OCCUPATION         
+
+Root node error: 2010/16000 = 0.12562
+
+n= 16000 
+
+         CP nsplit rel error  xerror     xstd
+1 0.0029851      0   1.00000 1.00000 0.020857
+2 0.0024876      8   0.96418 0.97960 0.020673
+3 0.0019900     15   0.94428 0.97711 0.020651
+4 0.0018657     16   0.94229 0.98259 0.020700
+5 0.0017000     22   0.92985 0.98209 0.020696
+> fancyRpartPlot(pruning_Tree, uniform=TRUE, main="Pruned Classification Tree")
+> 
+> CARTtrain.final$predict.class = predict(pruning_Tree, CARTtrain.final, type = "class")
+> 
+> View(CARTtrain.final)
+> 
+> CARTtrain.final$predict.score = predict(pruning_Tree, CARTtrain.final, type = "prob")
+> 
+> #Deciling
+> 
+> library(scales)
+Error: package or namespace load failed for ‘scales’ in loadNamespace(i, c(lib.loc, .libPaths()), versionCheck = vI[[i]]):
+ there is no package called ‘colorspace’
+In addition: Warning message:
+package ‘scales’ was built under R version 3.5.2 
+> library(data.table)
+> decile=function(x) {
++   deciles=vector(length=10)
++   for (i in seq(0.1,1,.1)){
++     deciles[i*10]=quantile(x,i, na.rm=T)
++   }
++   return(
++     ifelse(x<deciles[1],1,
++            ifelse(x<deciles[2],2,
++                   ifelse(x<deciles[3],3,
++                          ifelse(x<deciles[4],4,
++                                 ifelse(x<deciles[5],5,
++                                        ifelse(x<deciles[6],6,
++                                               ifelse(x<deciles[7],7,
++                                                      ifelse(x<deciles[8],8,
++                                                             ifelse(x<deciles[9],9,10
++                                                             ))))))))))
++ }
+> 
+> CARTtrain.final$deciles <- decile(CARTtrain.final$predict.score[,2])
+> 
+> #Model Measurement using the Rank Ordering method
+> 
+> library(formattable)
+> tmp_DT_CART = data.table(CARTtrain.final)
+> rank<-tmp_DT_CART[,list(
++   cnt=length(TARGET),
++   cnt_resp=sum(TARGET),
++   cnt_non_resp=sum(TARGET==0)),
++   by=deciles][order(-deciles)]
+> rank$rrate = round(rank$cnt_resp/rank$cnt,4);
+> rank$cum_resp = cumsum(rank$cnt_resp)
+> rank$cum_non_resp = cumsum(rank$cnt_non_resp)
+> rank$cum_rel_resp = round(rank$cum_resp/sum(rank$cnt_resp),4);
+> rank$cum_non_rel_resp = round(rank$cum_non_resp/sum(rank$cnt_non_resp),4);
+> rank$ks = abs(rank$cum_rel_resp - rank$cum_non_rel_resp)*100;
+> rank$rrate=percent(rank$rrate)
+> rank$cum_rel_resp = percent(rank$cum_rel_resp)
+> rank$cum_rel_non_resp = percent(rank$cum_non_rel_resp)
+> View(rank)
+> 
+> 
+> #KS calculation
+> library(ROCR)
+> pred<-prediction(CARTtrain.final$predict.score[,2], CARTtrain.final$TARGET)
+> perf<-performance(pred, "tpr", "fpr")
+> plot(perf)
+> KS<-max(attr(perf, 'y.values')[[1]] - attr(perf, 'x.values')[[1]])
+> 
+> 
+> #Area Under Curve
+> 
+> auc<- performance(pred, "auc");
+> auc<- as.numeric(auc@y.values)
+> 
+> 
+> ## Gini Cooefficient
+> 
+> library(ineq)
+> gini=ineq(CARTtrain.final$predict.score[,2], type = "Gini")
+> 
+> 
+> 
+> ## classification Error
+> with(CARTtrain.final, table(TARGET, predict.class))
+      predict.class
+TARGET     0     1
+     0 13861   129
+     1  1740   270
+> (129+1740)/16000
+[1] 0.1168125
+> KS
+[1] 0.2370595
+> auc
+[1] 0.6561471
+> gini
+[1] 0.2730623
+> prp(CART_Train_Model)

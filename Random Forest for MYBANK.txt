@@ -1,0 +1,103 @@
+#Random Forest fot MYBANK
+
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+RFdata= read.csv("PL_XSELL.csv", header=TRUE)
+library(caTools)
+set.seed(3000)
+split = sample.split(RFdata$TARGET, SplitRatio = 0.80)
+RFtrain= subset(RFdata, split==T)
+RFtest= subset(RFdata, split==F)
+RFtrain.final=subset(RFtrain, select=-c(1,11))
+RFtest.final=subset(RFtest, select=-c(1,11))
+
+
+#Scaling of the data
+
+str(RFtrain.final)
+
+gen.matrix<- model.matrix(~GENDER - 1, data= RFtrain.final)
+RFtrain.final<- data.frame( RFtrain.final, gen.matrix)
+occ.matrix<- model.matrix(~OCCUPATION - 1, data=  RFtrain.final)
+RFtrain.final<- data.frame( RFtrain.final, occ.matrix)
+age.matrix<- model.matrix(~AGE_BKT - 1, data=  RFtrain.final)
+data.train.final<- data.frame( RFtrain.final, age.matrix)
+acc.matrix<- model.matrix(~ACC_TYPE - 1, data=  RFtrain.final)
+RFtrain.final<- data.frame( RFtrain.final, acc.matrix)
+View( RFtrain.final)
+RFtrain.final.scaled= subset(RFtrain.final, select=-c(3, 5, 6, 9))
+View( RFtrain.final.scaled)
+str(RFtrain.final.scaled)
+
+#Random Forest 
+
+library(randomForest)
+setwd("C:/Users/Amit Kulkarni/Documents/R Programming/Machine Learning/data mining/Project 4")
+RF<- randomForest(as.factor(TARGET)~., data=RFtrain.final.scaled,
+                  ntree=71, mtry = 37, nodesize = 10, importance= TRUE)
+print(RF)
+plot(RF, main="")
+legend("topright", c("OOB,0,1"), text.col = 1:6, lty = 1:3, col=1:3)
+title(main="Error Rates Random Forest for RFDATA")
+
+RF$err.rate
+impvar<- round(randomForest::importance(RF),2)
+impvar[order(impvar[,3], decreasing =TRUE),]
+
+tRF<- tuneRF(x=RFtrain.final.scaled[, -c(1)],
+             y=as.factor(RFtrain.final.scaled$TARGET),
+             mtrystart=3,
+             ntreeTry = 101,
+             stepFactor = 1.5,
+             improve=0.001,
+             trace= TRUE,
+             plot=TRUE,
+             doBest = TRUE,
+             nodesize=10,
+             importance=TRUE,
+)
+
+RFtrain.final.scaled$predict.class=predict(tRF, RFtrain.final.scaled, type="class")
+RFtrain.final.scaled$predict.score=predict(tRF, RFtrain.final.scaled, type="prob")
+
+library(scales)
+library(data.table)
+
+decile=function(x) {
+  deciles=vector(length=10)
+  for (i in seq(0.1,1,.1)){
+    deciles[i*10]=quantile(x,i, na.rm=T)
+  }
+  return(
+    ifelse(x<deciles[1],1,
+    ifelse(x<deciles[2],2,
+    ifelse(x<deciles[3],3,
+    ifelse(x<deciles[4],4,
+    ifelse(x<deciles[5],5,
+    ifelse(x<deciles[6],6,
+    ifelse(x<deciles[7],7,
+    ifelse(x<deciles[8],8,
+    ifelse(x<deciles[9],9,10
+    ))))))))))
+}
+
+RFtrain.final.scaled$deciles <- decile(RFtrain.final.scaled$predict.score[,2])
+
+View(RFtrain.final.scaled)
+library(formattable)
+
+tmp_RFDT_RF = data.table(RFtrain.final.scaled)
+rank<-tmp_RFDT_RF[,list(
+  cnt=length(TARGET),
+  cnt_resp=sum(TARGET),
+  cnt_non_resp=sum(TARGET==0)),
+  by=deciles][order(-deciles)]
+rank$rrate = round(rank$cnt_resp/rank$cnt,4);
+rank$cum_resp = cumsum(rank$cnt_resp)
+rank$cum_non_resp = cumsum(rank$cnt_non_resp)
+rank$cum_rel_resp = round(rank$cum_resp/sum(rank$cnt_resp),4);
+rank$cum_non_rel_resp = round(rank$cum_non_resp/sum(rank$cnt_non_resp),4);
+rank$ks = abs(rank$cum_rel_resp - rank$cum_non_rel_resp)*100;
+rank$rrate=percent(rank$rrate)
+rank$cum_rel_resp = percent(rank$cum_rel_resp)
+rank$cum_non_rel_resp = percent(rank$cum_non_rel_resp)
+View(rank)
